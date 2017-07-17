@@ -18,7 +18,6 @@ def load_audio(audio_file):
 def build_model():
     """
     Builds up the SoundNet model and loads the weights from a given model file (8-layer model is kept at models/sound8.npy).
-    :param model_weights: A Tensorflow checkpoint containing the weights for the trained SoundNet model.
     :return:
     """
     model_weights = np.load('models/sound8.npy').item()
@@ -96,5 +95,5 @@ def predictions_to_scenes(prediction):
 
 if __name__ == '__main__':
     #  SoundNet demonstration
-    prediction = predict_scene_from_audio_file('railroad_audio.wav')
+    prediction = predict_scene_from_audio_file('train_music_studio.wav')
     print predictions_to_scenes(prediction)
