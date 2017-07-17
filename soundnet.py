@@ -3,17 +3,20 @@ from keras.models import Sequential
 import numpy as np
 import librosa
 
+
 def preprocess(audio):
     audio *= 256.0  # SoundNet needs the range to be between -256 and 256
     # reshaping the audio data so it fits into the graph (batch_size, num_samples, num_filter_channels)
     audio = np.reshape(audio, (1, -1, 1))
     return audio
 
+
 def load_audio(audio_file):
     sample_rate = 22050  # SoundNet works on mono audio files with a sample rate of 22050.
     audio, sr = librosa.load(audio_file, dtype='float32', sr=22050, mono=True)
     audio = preprocess(audio)
     return audio
+
 
 def build_model():
     """
@@ -80,10 +83,12 @@ def build_model():
 
     return model
 
+
 def predict_scene_from_audio_file(audio_file):
     model = build_model()
     audio = load_audio(audio_file)
     return model.predict(audio)
+
 
 def predictions_to_scenes(prediction):
     scenes = []
@@ -92,6 +97,7 @@ def predictions_to_scenes(prediction):
         for p in range(prediction.shape[1]):
             scenes.append(categories[np.argmax(prediction[0, p, :])])
     return scenes
+
 
 if __name__ == '__main__':
     #  SoundNet demonstration
