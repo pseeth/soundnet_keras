@@ -95,5 +95,5 @@ def predictions_to_scenes(prediction):
 
 if __name__ == '__main__':
     #  SoundNet demonstration
-    prediction = predict_scene_from_audio_file('train_music_studio.wav')
+    prediction = predict_scene_from_audio_file('railroad_audio.wav')
     print predictions_to_scenes(prediction)
