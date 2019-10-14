@@ -2,6 +2,7 @@ from keras.layers import BatchNormalization, Activation, Conv1D, MaxPooling1D, Z
 from keras.models import Model
 import numpy as np
 import librosa
+from scipy.special import softmax
 
 def preprocess(audio):
     audio *= 256.0  # SoundNet needs the range to be between -256 and 256
@@ -34,7 +35,7 @@ def build_model():
     """
     model_weights = np.load('models/sound8.npy', encoding='latin1', allow_pickle=True).item()
     # model = Input(batch_input_shape=(1, None, 1))
-    model = Input(shape=(1,1))
+    input_layer = Input(shape=(None, 1), name='input')
 
     filter_parameters = [{'name': 'conv1', 'num_filters': 16, 'padding': 32,
                           'kernel_size': 64, 'conv_strides': 2,
@@ -67,11 +68,13 @@ def build_model():
                 'kernel_size': 8, 'conv_strides': 2},
             ]
 
+    model = ZeroPadding1D(padding=32)(input_layer)
     for x in filter_parameters:
         biases = model_weights[x['name']]['biases']
         weights_shape = remove_element(model_weights[x['name']]['weights'].shape, 1)
         weights = model_weights[x['name']]['weights'].reshape(weights_shape)
-        model = ZeroPadding1D(padding=x['padding'])(model)
+        if 'conv1' not in x['name']:
+            model = ZeroPadding1D(padding=x['padding'])(model)
         model = Conv1D(x['num_filters'],
                          kernel_size=x['kernel_size'],
                          strides=x['conv_strides'],
@@ -88,7 +91,6 @@ def build_model():
         model = BatchNormalization(weights=[gamma, beta, mean, var])(model)
         model = Activation('relu')(model)
 
-        import ipdb; ipdb.set_trace()
         if 'pool_size' in x:
             model = MaxPooling1D(pool_size=x['pool_size'],
                                    strides=x['pool_strides'],
@@ -99,17 +101,19 @@ def build_model():
     output_1 = Conv1D(x['num_filters'],
                          kernel_size=x['kernel_size'],
                          strides=x['conv_strides'],
-                         weights=[biases, weights],
-                         padding='valid')
+                         weights=[weights, biases],
+                         padding='valid')(model)
 
     x = last_layers[1]
+    weights = model_weights[x['name']]['weights'].reshape((8, 1024, 401))
+    biases = model_weights[x['name']]['biases']
     output_2 = Conv1D(x['num_filters'],
                          kernel_size=x['kernel_size'],
                          strides=x['conv_strides'],
-                         weights=[biases, weights],
-                         padding='valid')
+                         weights=[weights, biases],
+                         padding='valid')(model)
 
-    return Model(inputs=model, outputs=[output_1, output_2])
+    return Model(inputs=input_layer, outputs=[output_1, output_2])
 
 
 def predict_scene_from_audio_file(audio_file):
@@ -119,13 +123,18 @@ def predict_scene_from_audio_file(audio_file):
 
 
 def predictions_to_scenes(prediction):
-    scenes = []
-    # with open('categories/categories_places2.txt', 'r') as f:
+    with open('categories/categories_places2.txt', 'r') as f:
+        places = np.array(f.read().split('\n'))
     with open('categories/categories_imagenet.txt', 'r') as f:
-        categories = f.read().split('\n')
-        for p in range(prediction.shape[1]):
-            scenes.append(categories[np.argmax(prediction[0, p, :])])
-    return scenes
+        imagenet = np.array(f.read().split('\n'))
+
+    object_distro = softmax(prediction[0].reshape(-1, 1000), axis=1)
+    place_distro = softmax(prediction[1].reshape(-1, 401), axis=1)
+
+    top_objects = imagenet[object_distro.argmax(axis=1)]#[object_distro.max(axis=1) > 0.05]
+    top_places = places[place_distro.argmax(axis=1)]#[place_distro.max(axis=1) > 0.05]
+
+    return top_objects, top_places
 
 
 if __name__ == '__main__':
