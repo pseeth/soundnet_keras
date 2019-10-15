@@ -1,8 +1,10 @@
-from keras.layers import BatchNormalization, Activation, Conv1D, MaxPooling1D, ZeroPadding1D, Input
-from keras.models import Model
-import numpy as np
 import librosa
+import numpy as np
+import pandas as pd
 from scipy.special import softmax
+from keras.models import Model
+from keras.layers import BatchNormalization, Activation, Conv1D, MaxPooling1D, ZeroPadding1D, Input
+
 
 def preprocess(audio):
     audio *= 256.0  # SoundNet needs the range to be between -256 and 256
@@ -12,14 +14,26 @@ def preprocess(audio):
 
 
 def load_audio(audio_file):
-    sample_rate = 22050  # SoundNet works on mono audio files with a sample rate of 22050.
-    audio, sr = librosa.load(audio_file, dtype='float32', sr=sample_rate, mono=True)
+    # SoundNet works on mono audio files with a sample rate of 22050.
+    sample_rate = 22050
+    audio, sr = librosa.load(
+        audio_file, dtype='float32', sr=sample_rate, mono=True)
     audio = preprocess(audio)
     return audio
 
 
-
 def remove_element(seq, element):
+    '''
+    remove the first occurance of an element of
+    a sequence (incl. immutable)
+
+    orginally written by `zwer` on SO here:
+    https://stackoverflow.com/questions/52617670/how-to-remove-the-first-instance-of-an-element-in-a-tuple
+
+    pararms:
+        seq (list-like): a sequence
+        element (?): element to be removed from sequence
+    '''
     try:
         index = seq.index(element)
         return seq[:index] + seq[index + 1:]
@@ -27,14 +41,13 @@ def remove_element(seq, element):
         return seq
 
 
-
 def build_model():
     """
     Builds up the SoundNet model and loads the weights from a given model file (8-layer model is kept at models/sound8.npy).
     :return:
     """
-    model_weights = np.load('models/sound8.npy', encoding='latin1', allow_pickle=True).item()
-    # model = Input(batch_input_shape=(1, None, 1))
+    model_weights = np.load('models/sound8.npy',
+                            encoding='latin1', allow_pickle=True).item()
     input_layer = Input(shape=(None, 1), name='input')
 
     filter_parameters = [{'name': 'conv1', 'num_filters': 16, 'padding': 32,
@@ -61,57 +74,56 @@ def build_model():
                          {'name': 'conv7', 'num_filters': 1024, 'padding': 2,
                           'kernel_size': 4, 'conv_strides': 2},
                          ]
-    last_layers = [
-            {'name': 'conv8', 'num_filters': 1000, 'padding': 0,
-                'kernel_size': 8, 'conv_strides': 2},
-            {'name': 'conv8_2', 'num_filters': 401, 'padding': 0,
-                'kernel_size': 8, 'conv_strides': 2},
-            ]
 
     model = ZeroPadding1D(padding=32)(input_layer)
     for x in filter_parameters:
         biases = model_weights[x['name']]['biases']
-        weights_shape = remove_element(model_weights[x['name']]['weights'].shape, 1)
+        weights_shape = remove_element(
+            model_weights[x['name']]['weights'].shape, 1)
         weights = model_weights[x['name']]['weights'].reshape(weights_shape)
         if 'conv1' not in x['name']:
             model = ZeroPadding1D(padding=x['padding'])(model)
         model = Conv1D(x['num_filters'],
-                         kernel_size=x['kernel_size'],
-                         strides=x['conv_strides'],
-                         padding='valid',
-                         weights = [weights, biases]
-                         )(model)
+                       kernel_size=x['kernel_size'],
+                       strides=x['conv_strides'],
+                       padding='valid',
+                       weights=[weights, biases]
+                       )(model)
 
         gamma = model_weights[x['name']]['gamma']
         beta = model_weights[x['name']]['beta']
         mean = model_weights[x['name']]['mean']
         var = model_weights[x['name']]['var']
 
-
         model = BatchNormalization(weights=[gamma, beta, mean, var])(model)
         model = Activation('relu')(model)
 
         if 'pool_size' in x:
             model = MaxPooling1D(pool_size=x['pool_size'],
-                                   strides=x['pool_strides'],
-                                   padding='valid')(model)
-    x = last_layers[0]
-    weights = model_weights[x['name']]['weights'].reshape((8, 1024, 1000))
-    biases = model_weights[x['name']]['biases']
-    output_1 = Conv1D(x['num_filters'],
-                         kernel_size=x['kernel_size'],
-                         strides=x['conv_strides'],
-                         weights=[weights, biases],
-                         padding='valid')(model)
+                                 strides=x['pool_strides'],
+                                 padding='valid')(model)
 
-    x = last_layers[1]
-    weights = model_weights[x['name']]['weights'].reshape((8, 1024, 401))
-    biases = model_weights[x['name']]['biases']
-    output_2 = Conv1D(x['num_filters'],
-                         kernel_size=x['kernel_size'],
-                         strides=x['conv_strides'],
-                         weights=[weights, biases],
-                         padding='valid')(model)
+    conv8 = {'name': 'conv8', 'num_filters': 1000, 'padding': 0,
+                      'kernel_size': 8, 'conv_strides': 2}
+    conv8_2 = {'name': 'conv8_2', 'num_filters': 401, 'padding': 0,
+                      'kernel_size': 8, 'conv_strides': 2}
+
+    weights = model_weights[conv8['name']]['weights'].reshape((8, 1024, 1000))
+    biases = model_weights[conv8['name']]['biases']
+    output_1 = Conv1D(conv8['num_filters'],
+                      kernel_size=conv8['kernel_size'],
+                      strides=conv8['conv_strides'],
+                      weights=[weights, biases],
+                      padding='valid')(model)
+
+    weights = model_weights[conv8_2['name']
+                            ]['weights'].reshape((8, 1024, 401))
+    biases = model_weights[conv8_2['name']]['biases']
+    output_2 = Conv1D(conv8_2['num_filters'],
+                      kernel_size=conv8_2['kernel_size'],
+                      strides=conv8_2['conv_strides'],
+                      weights=[weights, biases],
+                      padding='valid')(model)
 
     return Model(inputs=input_layer, outputs=[output_1, output_2])
 
@@ -124,17 +136,14 @@ def predict_scene_from_audio_file(audio_file):
 
 def predictions_to_scenes(prediction):
     with open('categories/categories_places2.txt', 'r') as f:
-        places = np.array(f.read().split('\n'))
+        places = np.array(f.read().strip().split('\n'))
     with open('categories/categories_imagenet.txt', 'r') as f:
-        imagenet = np.array(f.read().split('\n'))
+        imagenet = np.array(f.read().strip().split('\n'))
 
     object_distro = softmax(prediction[0].reshape(-1, 1000), axis=1)
     place_distro = softmax(prediction[1].reshape(-1, 401), axis=1)
 
-    top_objects = imagenet[object_distro.argmax(axis=1)]#[object_distro.max(axis=1) > 0.05]
-    top_places = places[place_distro.argmax(axis=1)]#[place_distro.max(axis=1) > 0.05]
-
-    return top_objects, top_places
+    return pd.DataFrame(object_distro, columns=imagenet), pd.DataFrame(place_distro, columns=places)
 
 
 if __name__ == '__main__':
